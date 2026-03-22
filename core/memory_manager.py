@@ -20,6 +20,7 @@ from schemas import (
     ConversationNode, ConversationEdge, StateDocument,
     EdgeType, NodeTier, Speaker, EmotionalRegister
 )
+from core.ner_engine import extract_metadata
 
 
 # ─────────────────────────────────────────────
@@ -249,32 +250,33 @@ def process_turn(
     conversation_id: str,
     existing_nodes: list[ConversationNode],
     state_document: StateDocument,
-    extracted_entities: list[str],
-    extracted_topics: list[str],
     extracted_open_questions: list[str],
-    emotional_register: EmotionalRegister = EmotionalRegister.NEUTRAL,
 ) -> MemoryManagerResult:
     """
     Main memory manager function. Called on every turn.
 
-    1. Creates a new node for the message
-    2. Detects and creates edges
-    3. Evaluates tier status of existing nodes
-    4. Checks if state document review is due
-    5. Returns everything needed to update the graph
+    1. Extracts metadata automatically from message text
+    2. Creates a new node for the message
+    3. Detects and creates edges
+    4. Evaluates tier status of existing nodes
+    5. Checks if state document review is due
+    6. Returns everything needed to update the graph
     """
 
-    # 1. Create new node
+    # 1. Extract metadata automatically
+    metadata = extract_metadata(message_text)
+
+    # 2. Create new node
     new_node = ConversationNode(
         conversation_id=conversation_id,
         turn_number=turn_number,
         full_text=message_text,
         compressed_text=message_text[:200] + "..." if len(message_text) > 200 else message_text,
         speaker=speaker,
-        topic_tags=extracted_topics,
-        entity_tags=extracted_entities,
+        topic_tags=metadata["topics"],
+        entity_tags=metadata["entities"],
         open_questions=extracted_open_questions,
-        emotional_register=emotional_register,
+        emotional_register=EmotionalRegister(metadata["emotional_register"]),
     )
 
     # 2. Detect edges
