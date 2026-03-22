@@ -209,15 +209,29 @@ class PreFetchEngine:
         # Provisional result is good enough — return it
         return self._provisional_result
 
-    def _extract_entities_fast(self, text: str) -> list[str]:
+    def _extract_entities_fast(self, partial_text: str) -> list[str]:
         """
-        Lightweight entity extraction for use during typing.
-        In production: replace with a fast NER model or keyword extractor.
-        This placeholder extracts capitalised words as a rough proxy.
+        Real-time entity extraction called on every debounce tick as the
+        user types. Must complete in <20 ms.
+
+        Short text (<15 chars): regex-only fast path.
+        Longer text: NER-only spaCy pipeline supplemented by regex.
         """
-        words = text.split()
-        entities = [
-            w.strip(".,!?") for w in words
-            if w and w[0].isupper() and len(w) > 2
+        if not partial_text or not partial_text.strip():
+            return []
+
+        text = partial_text.strip()
+
+        if len(text) < _MIN_CHARS_FOR_NLP:
+            return _dedupe_entities(_PROPER_NOUN_RE.findall(text))
+
+        _, nlp_ner = _load_nlp()
+        doc = nlp_ner(text)
+
+        entities: list[str] = [
+            ent.text for ent in doc.ents if ent.label_ in _ENTITY_LABELS
         ]
-        return list(set(entities))
+
+        entities.extend(_PROPER_NOUN_RE.findall(text))
+
+        return _dedupe_entities(entities)
