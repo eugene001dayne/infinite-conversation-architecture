@@ -1,0 +1,24 @@
+# NER Engine dependencies for the Infinite Conversation Architecture
+# Architecture by: Eugene Mawuli Attigah
+#
+# Installation:
+#   pip install -r requirements_ner.txt
+#   python -m spacy download en_core_web_sm
+#
+# All packages run on CPU. No GPU required.
+
+# ── Required ─────────────────────────────────────────────────────────────────
+
+# NER engine. en_core_web_sm (~12MB) is downloaded separately (see above).
+spacy>=3.7.0,<4.0.0
+
+# ── Optional but strongly recommended ────────────────────────────────────────
+
+# Topic keyword extraction. Deterministic, <1ms, no model weights.
+# If not installed, the engine falls back to spaCy noun chunks (still accurate,
+# slightly less tuned for keyword extraction).
+yake>=0.4.8
+
+# Polarity tiebreaker for emotional register classification.
+# If not installed, register classification still works (pattern-matching only).
+vaderSentiment>=3.3.2
