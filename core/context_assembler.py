@@ -15,6 +15,10 @@ On every turn it takes:
 And assembles them into the final context window passed to the model.
 """
 
+from core.ner_engine import (
+    _load_nlp, _ENTITY_LABELS, _PROPER_NOUN_RE,
+    _MIN_CHARS_FOR_NLP, _dedupe_entities, warm_up,
+)
 from schemas import (
     ConversationNode, StateDocument, AssembledContext, Speaker
 )
