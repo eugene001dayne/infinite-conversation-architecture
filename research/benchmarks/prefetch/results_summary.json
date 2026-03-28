@@ -1,0 +1,43 @@
+{
+  "run_at": "2026-03-28T04:29:32.091922",
+  "benchmark_metadata": {
+    "generated_at": "2026-03-28T04:29:26.866031",
+    "conversation_count": 100,
+    "turns_per_conversation": 50,
+    "planted_fact_turn": 10,
+    "retrieval_question_turn": 50,
+    "hot_window_size": 25,
+    "description": "Needle-in-a-Haystack benchmark dataset for ICA pre-fetch evaluation"
+  },
+  "hot_window_size": 25,
+  "conditions_run": [
+    "baseline",
+    "turn_level",
+    "ica_typing"
+  ],
+  "total_conversations": 100,
+  "baseline": {
+    "n": 100,
+    "avg_latency_ms": 0.214,
+    "recall_at_1": 0.0,
+    "recall_at_3": 0.0,
+    "recall_at_5": 0.0,
+    "recall_at_10": 0.02
+  },
+  "turn_level": {
+    "n": 100,
+    "avg_latency_ms": 0.206,
+    "recall_at_1": 0.0,
+    "recall_at_3": 0.0,
+    "recall_at_5": 0.01,
+    "recall_at_10": 0.02
+  },
+  "ica_typing": {
+    "n": 100,
+    "avg_latency_ms": 0.033,
+    "recall_at_1": 0.0,
+    "recall_at_3": 0.0,
+    "recall_at_5": 0.0,
+    "recall_at_10": 0.02
+  }
+}
