@@ -1,0 +1,635 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/eugene001dayne/infinite-conversation-architecture/schemas/memory_transfer_envelope_partial.json",
+  "title": "MemoryTransferEnvelopePartial",
+  "description": "A partial ICA memory transfer envelope. Carries a declared subset of memory components — either the State Document alone, the Ground Truth Network alone, or any explicit combination. Receivers MUST check transfer_scope to know which fields are guaranteed present. The envelope_hash and all integrity hashes apply to present fields only. All fields present MUST still pass the same hash verification rules as the full envelope.",
+  "type": "object",
+
+  "required": [
+    "schema_version",
+    "schema_uri",
+    "transfer_id",
+    "transfer_type",
+    "transfer_scope",
+    "sender_agent_id",
+    "conversation_id",
+    "created_at",
+    "envelope_hash"
+  ],
+
+  "additionalProperties": false,
+
+  "properties": {
+
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version identifier. Receivers must reject envelopes with an unsupported version.",
+      "enum": ["1.0"],
+      "examples": ["1.0"]
+    },
+
+    "schema_uri": {
+      "type": "string",
+      "format": "uri",
+      "description": "Canonical URI of this partial envelope schema. Allows a receiver to self-validate without prior knowledge.",
+      "examples": [
+        "https://github.com/eugene001dayne/infinite-conversation-architecture/schemas/memory_transfer_envelope_partial.json"
+      ]
+    },
+
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Globally unique identifier for this transfer event.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "examples": ["7c2a9b4e-1f3d-4e5f-a6b7-c8d9e0f1a2b3"]
+    },
+
+    "transfer_type": {
+      "type": "string",
+      "description": "Always 'partial' for this schema. Receivers MUST reject this envelope if transfer_type is not 'partial'.",
+      "enum": ["partial"],
+      "examples": ["partial"]
+    },
+
+    "transfer_scope": {
+      "$ref": "#/definitions/TransferScope",
+      "description": "Machine-readable declaration of which memory components are included in this envelope. Receivers MUST read this field before attempting to access any optional memory field. Using a declared scope absent from this list is a protocol error."
+    },
+
+    "partial_of": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Optional. If this partial envelope was split from a full envelope, the transfer_id of the originating full envelope. Enables reconstruction audit trails when memory is transferred in chunks.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+
+    "chunk_sequence": {
+      "$ref": "#/definitions/ChunkSequence",
+      "description": "Optional. Present when a single full envelope has been split into multiple sequential partial envelopes for chunked transfer (e.g., large Ground Truth Networks). Receivers use this to order and reassemble partial envelopes."
+    },
+
+    "sender_agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Identity of the agent instance that produced this envelope.",
+      "examples": ["ica:memory-manager:7e4a1c2d-5f8b-4e3a-9d1c-2b6f0e7a4d8c"]
+    },
+
+    "receiver_agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Optional. Intended recipient agent identity. If present, the receiver SHOULD verify its identity matches before accepting.",
+      "examples": ["ica:memory-manager:9b2c3d4e-1f5a-6b7c-8d9e-0f1a2b3c4d5e"]
+    },
+
+    "conversation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Identifier of the conversation whose partial memory state is being transferred.",
+      "examples": ["conv:user-abc123:session-20260405-001"]
+    },
+
+    "state_document_json": {
+      "type": "string",
+      "minLength": 2,
+      "description": "Conditionally required. Present only when transfer_scope includes 'state_document'. The full ICA State Document serialised as a JSON string. Must be absent if 'state_document' is not in transfer_scope.",
+      "examples": [
+        "{\"section_a\":{\"name\":\"Alice\"},\"section_b\":{\"open_threads\":[]},\"section_c\":{},\"section_d\":{}}"
+      ]
+    },
+
+    "state_document_hash": {
+      "type": "string",
+      "description": "Conditionally required. Present and MUST be verified when transfer_scope includes 'state_document'. SHA-256 hex digest of state_document_json.",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64,
+      "examples": ["a3f5e2b1c7d4e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4"]
+    },
+
+    "state_document_version_index": {
+      "type": "integer",
+      "description": "Conditionally present. When transfer_scope includes 'state_document', this is the version_index of the transferred State Document snapshot within the full chain. Allows receivers to know the relative position of this snapshot without receiving the full chain.",
+      "minimum": 0
+    },
+
+    "state_chain_hashes": {
+      "type": "array",
+      "description": "Conditionally present. When transfer_scope includes 'state_chain', carries the full or partial State Document version chain. May be a subset — state_chain_range declares which portion is included.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/StateChainEntry"
+      }
+    },
+
+    "state_chain_range": {
+      "$ref": "#/definitions/StateChainRange",
+      "description": "Optional. When state_chain_hashes is present but does not cover the full version history, this declares which version range is included. Absent means the full chain from genesis to current is included."
+    },
+
+    "ground_truth_network": {
+      "$ref": "#/definitions/GroundTruthNetwork",
+      "description": "Conditionally required. Present only when transfer_scope includes 'ground_truth_network'. May be a node-filtered subset — see node_filter."
+    },
+
+    "node_filter": {
+      "$ref": "#/definitions/NodeFilter",
+      "description": "Optional. When ground_truth_network is present and contains a subset of all nodes (e.g., only active-tier nodes), this describes the filter criteria applied. Enables receivers to understand the completeness of the transferred graph."
+    },
+
+    "node_attestations": {
+      "$ref": "#/definitions/NodeAttestations",
+      "description": "Conditionally required. Present when transfer_scope includes 'ground_truth_network'. Contains attestations for exactly the nodes present in ground_truth_network.nodes — not the full conversation graph."
+    },
+
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp at which the sender produced this envelope.",
+      "examples": ["2026-04-05T14:32:10.456Z"]
+    },
+
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Optional. ISO 8601 timestamp after which this envelope MUST NOT be accepted.",
+      "examples": ["2026-04-05T15:32:10.456Z"]
+    },
+
+    "envelope_hash": {
+      "type": "string",
+      "description": "SHA-256 hex digest of the canonical partial envelope. Computed identically to the full envelope: JSON-serialise with envelope_hash set to empty string, sort keys lexicographically, hash UTF-8 bytes. Receivers MUST verify before any other processing.",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64,
+      "examples": ["b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4"]
+    },
+
+    "signature": {
+      "$ref": "#/definitions/EnvelopeSignature",
+      "description": "Optional. Cryptographic signature over the envelope_hash. Same semantics as in the full envelope schema."
+    },
+
+    "compression": {
+      "type": "string",
+      "description": "Optional. Compression applied to state_document_json.",
+      "enum": ["none", "gzip", "zstd", "lz4"],
+      "default": "none"
+    },
+
+    "encoding": {
+      "type": "string",
+      "description": "Optional. Character encoding of string fields.",
+      "enum": ["utf-8"],
+      "default": "utf-8"
+    },
+
+    "metadata": {
+      "$ref": "#/definitions/EnvelopeMetadata",
+      "description": "Optional. Extensibility bag. Included in envelope_hash computation."
+    }
+  },
+
+  "allOf": [
+    {
+      "description": "If transfer_scope includes 'state_document', then state_document_json and state_document_hash MUST be present.",
+      "if": {
+        "properties": {
+          "transfer_scope": {
+            "properties": {
+              "includes": {
+                "contains": { "const": "state_document" }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["state_document_json", "state_document_hash"]
+      }
+    },
+    {
+      "description": "If transfer_scope includes 'state_chain', then state_chain_hashes MUST be present.",
+      "if": {
+        "properties": {
+          "transfer_scope": {
+            "properties": {
+              "includes": {
+                "contains": { "const": "state_chain" }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["state_chain_hashes"]
+      }
+    },
+    {
+      "description": "If transfer_scope includes 'ground_truth_network', then ground_truth_network and node_attestations MUST be present.",
+      "if": {
+        "properties": {
+          "transfer_scope": {
+            "properties": {
+              "includes": {
+                "contains": { "const": "ground_truth_network" }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["ground_truth_network", "node_attestations"]
+      }
+    }
+  ],
+
+  "definitions": {
+
+    "Sha256Hex": {
+      "type": "string",
+      "description": "A 64-character lowercase hexadecimal SHA-256 digest.",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+
+    "TransferScope": {
+      "type": "object",
+      "description": "Declares which ICA memory components are included in this partial envelope.",
+      "required": ["includes"],
+      "additionalProperties": false,
+      "properties": {
+        "includes": {
+          "type": "array",
+          "description": "List of memory component identifiers present in this envelope. Must be non-empty — a partial envelope with nothing included is invalid. 'state_document' = current State Document snapshot. 'state_chain' = State Document version chain. 'ground_truth_network' = conversation graph nodes and edges.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["state_document", "state_chain", "ground_truth_network"]
+          },
+          "examples": [
+            ["state_document"],
+            ["ground_truth_network"],
+            ["state_document", "state_chain"],
+            ["state_document", "ground_truth_network"]
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Optional. Human-readable explanation for why this subset was chosen (e.g., 'state_document only — GTN too large for this transport'). Informational only."
+        }
+      }
+    },
+
+    "ChunkSequence": {
+      "type": "object",
+      "description": "Chunked transfer sequencing information. Present when a full envelope has been split into ordered parts.",
+      "required": ["chunk_index", "total_chunks", "batch_id"],
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Shared identifier across all chunks of the same split. Receivers use this to group and order chunks.",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "chunk_index": {
+          "type": "integer",
+          "description": "Zero-based index of this chunk within the batch.",
+          "minimum": 0
+        },
+        "total_chunks": {
+          "type": "integer",
+          "description": "Total number of chunks in this batch. Receivers assemble all chunks before processing.",
+          "minimum": 1
+        }
+      }
+    },
+
+    "StateChainEntry": {
+      "type": "object",
+      "description": "A single entry in the State Document version chain.",
+      "required": ["version_index", "hash", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "version_index": {
+          "type": "integer",
+          "description": "Zero-based sequential version number. Must be strictly monotonically increasing within the array.",
+          "minimum": 0
+        },
+        "hash": {
+          "$ref": "#/definitions/Sha256Hex",
+          "description": "SHA-256 hash of the State Document at this version."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp when this version was committed."
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Optional. Human-readable changelog entry for this version."
+        }
+      }
+    },
+
+    "StateChainRange": {
+      "type": "object",
+      "description": "Declares which portion of the full State Document version chain is included in state_chain_hashes.",
+      "required": ["from_version_index", "to_version_index", "total_versions"],
+      "additionalProperties": false,
+      "properties": {
+        "from_version_index": {
+          "type": "integer",
+          "description": "version_index of the first entry in state_chain_hashes.",
+          "minimum": 0
+        },
+        "to_version_index": {
+          "type": "integer",
+          "description": "version_index of the last entry in state_chain_hashes.",
+          "minimum": 0
+        },
+        "total_versions": {
+          "type": "integer",
+          "description": "Total number of versions in the complete chain (including versions not transferred). Allows receivers to understand what fraction of the chain they received.",
+          "minimum": 1
+        }
+      }
+    },
+
+    "GroundTruthNetwork": {
+      "type": "object",
+      "description": "A subset of the ICA conversation graph. May be filtered by tier, node list, or other criteria — see node_filter.",
+      "required": ["network_id", "nodes", "edges", "network_hash", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "network_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable identifier for the full Ground Truth Network. Identical across all partial envelopes that carry subsets of the same network.",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "network_hash": {
+          "$ref": "#/definitions/Sha256Hex",
+          "description": "SHA-256 hash of THIS subset (not the full network). Computed over the nodes and edges present in this transfer, sorted by ID."
+        },
+        "full_network_hash": {
+          "$ref": "#/definitions/Sha256Hex",
+          "description": "Optional. SHA-256 hash of the complete network from which this subset was drawn. Allows receivers to verify that this subset is consistent with a known full network hash."
+        },
+        "tier": {
+          "type": "string",
+          "description": "Optional. If all nodes share a single tier, declare it here.",
+          "enum": ["active", "warm", "cold", "mixed"]
+        },
+        "nodes": {
+          "type": "array",
+          "description": "Transferred graph nodes.",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/definitions/GraphNode"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "description": "Typed edges between the transferred nodes. MUST NOT reference node_ids absent from this transfer's nodes array.",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/definitions/GraphEdge"
+          }
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this network subset was snapshotted."
+        },
+        "total_node_count": {
+          "type": "integer",
+          "description": "Optional. Total node count in the full network. Lets the receiver gauge completeness of this transfer.",
+          "minimum": 0
+        },
+        "transferred_node_count": {
+          "type": "integer",
+          "description": "Optional. Number of nodes in this partial transfer. Should match nodes.length.",
+          "minimum": 0
+        }
+      }
+    },
+
+    "GraphNode": {
+      "type": "object",
+      "description": "A single node in the ICA conversation graph.",
+      "required": ["node_id", "node_hash", "speaker", "content", "tier", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Globally unique node identifier.",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "node_hash": {
+          "$ref": "#/definitions/Sha256Hex",
+          "description": "SHA-256 hash of node content."
+        },
+        "speaker": {
+          "type": "string",
+          "enum": ["user", "agent", "system"]
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["active", "warm", "cold"]
+        },
+        "content": {
+          "type": "string",
+          "minLength": 0
+        },
+        "content_compressed": {
+          "type": "boolean",
+          "default": false
+        },
+        "turn_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "topic_tags": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 128 },
+          "maxItems": 32
+        },
+        "entity_tags": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 256 },
+          "maxItems": 64
+        },
+        "emotional_register": {
+          "type": "string",
+          "enum": ["neutral", "positive", "negative", "questioning", "assertive", "uncertain"]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+
+    "GraphEdge": {
+      "type": "object",
+      "description": "A typed directed edge between two graph nodes.",
+      "required": ["edge_id", "source_node_id", "target_node_id", "edge_type", "weight"],
+      "additionalProperties": false,
+      "properties": {
+        "edge_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "source_node_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "target_node_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "edge_type": {
+          "type": "string",
+          "enum": ["CONTINUES", "REFERENCES", "CONTRADICTS", "RESOLVES", "SHARES_ENTITY", "SHARES_TOPIC", "SYNTHESISED"]
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+
+    "NodeAttestations": {
+      "type": "object",
+      "description": "Map of node_id → SHA-256 hex for nodes present in this transfer.",
+      "minProperties": 0,
+      "additionalProperties": {
+        "$ref": "#/definitions/Sha256Hex"
+      },
+      "propertyNames": {
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+    },
+
+    "NodeFilter": {
+      "type": "object",
+      "description": "Describes which nodes were excluded and why, so receivers can understand the completeness of the transferred Ground Truth Network.",
+      "additionalProperties": false,
+      "properties": {
+        "tier_filter": {
+          "type": "array",
+          "description": "If non-empty, only nodes from the listed tiers were included.",
+          "items": {
+            "type": "string",
+            "enum": ["active", "warm", "cold"]
+          },
+          "minItems": 1
+        },
+        "max_nodes": {
+          "type": "integer",
+          "description": "If set, the transfer was limited to this many nodes (selected by recency or score).",
+          "minimum": 1
+        },
+        "node_ids": {
+          "type": "array",
+          "description": "If set, only the listed node_ids were transferred (allowlist).",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        },
+        "excluded_node_ids": {
+          "type": "array",
+          "description": "If set, these node_ids were explicitly excluded from the transfer.",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Optional. Human-readable reason for this filter (e.g., 'active-tier only for low-latency handoff')."
+        }
+      }
+    },
+
+    "EnvelopeSignature": {
+      "type": "object",
+      "description": "Cryptographic signature over the envelope_hash.",
+      "required": ["algorithm", "public_key_id", "signature_value"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["Ed25519", "ES256", "RS256", "HS256"]
+        },
+        "public_key_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "signature_value": {
+          "type": "string"
+        },
+        "signed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+
+    "EnvelopeMetadata": {
+      "type": "object",
+      "description": "Open extension bag. Always included in envelope_hash computation.",
+      "additionalProperties": true,
+      "properties": {
+        "source_system": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "deployment_env": {
+          "type": "string",
+          "enum": ["production", "staging", "development", "test"]
+        },
+        "ica_version": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "chainthread_chain_id": {
+          "type": "string",
+          "maxLength": 256
+        }
+      }
+    }
+  }
+}
