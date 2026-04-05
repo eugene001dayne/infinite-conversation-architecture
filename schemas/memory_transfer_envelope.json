@@ -1,0 +1,465 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/eugene001dayne/infinite-conversation-architecture/schemas/memory_transfer_envelope.json",
+  "title": "MemoryTransferEnvelope",
+  "description": "A cryptographically attested package of ICA agent memory. Self-describing: a receiving agent with no prior knowledge can parse and verify this envelope. Designed for transfer over HTTP or ChainThread HandoffEnvelope payloads.",
+  "type": "object",
+
+  "required": [
+    "schema_version",
+    "schema_uri",
+    "transfer_id",
+    "transfer_type",
+    "sender_agent_id",
+    "conversation_id",
+    "state_document_json",
+    "state_document_hash",
+    "state_chain_hashes",
+    "ground_truth_network",
+    "node_attestations",
+    "created_at",
+    "envelope_hash"
+  ],
+
+  "additionalProperties": false,
+
+  "properties": {
+
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version identifier. Receivers must reject envelopes with an unsupported version. Increment on any breaking change.",
+      "enum": ["1.0"],
+      "examples": ["1.0"]
+    },
+
+    "schema_uri": {
+      "type": "string",
+      "format": "uri",
+      "description": "Canonical URI of the schema that describes this envelope. Allows a receiver with no prior knowledge to fetch the schema and self-validate. Must resolve to this document.",
+      "examples": [
+        "https://github.com/eugene001dayne/infinite-conversation-architecture/schemas/memory_transfer_envelope.json"
+      ]
+    },
+
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Globally unique identifier for this transfer event. Generated fresh for every envelope emission — never reused. Used for deduplication and audit trail correlation.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "examples": ["3f6e2b1a-84c0-4d9e-b3f2-0a7c91d5e6f8"]
+    },
+
+    "transfer_type": {
+      "type": "string",
+      "description": "Declares whether this is a full memory snapshot or a partial payload. Receivers use this to determine which fields are guaranteed to be present. 'full' guarantees all memory components. 'partial' is defined by the companion MemoryTransferEnvelopePartial schema.",
+      "enum": ["full"],
+      "examples": ["full"]
+    },
+
+    "sender_agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Identity of the agent instance that produced this envelope. Format is implementation-defined but must be stable within a deployment — the same agent must always emit the same sender_agent_id. Recommended format: '<system>:<agent-name>:<instance-uuid>'.",
+      "examples": ["ica:memory-manager:7e4a1c2d-5f8b-4e3a-9d1c-2b6f0e7a4d8c"]
+    },
+
+    "receiver_agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Optional. Intended recipient agent identity. If present, a receiving agent SHOULD verify its own identity matches this value before accepting the envelope. Absence means the envelope is open to any compatible receiver.",
+      "examples": ["ica:memory-manager:9b2c3d4e-1f5a-6b7c-8d9e-0f1a2b3c4d5e"]
+    },
+
+    "conversation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Identifier of the conversation whose memory state is being transferred. Must be stable across agent instances — both sender and receiver refer to the same conversation by this ID.",
+      "examples": ["conv:user-abc123:session-20260405-001"]
+    },
+
+    "state_document_json": {
+      "type": "string",
+      "minLength": 2,
+      "description": "The full ICA State Document serialised as a JSON string. The receiving agent parses this to reconstruct the User Identity, Conversation State, Key Facts, and Relationship History sections. Stored as a string (not an embedded object) to preserve byte-exact fidelity for hash verification against state_document_hash.",
+      "examples": [
+        "{\"section_a\":{\"name\":\"Alice\",\"role\":\"engineer\"},\"section_b\":{\"open_threads\":[],\"decisions\":[]},\"section_c\":{},\"section_d\":{}}"
+      ]
+    },
+
+    "state_document_hash": {
+      "type": "string",
+      "description": "SHA-256 hex digest of the current version of state_document_json (raw UTF-8 bytes, no BOM). The receiving agent MUST recompute this hash and reject the envelope if it does not match. This is the primary integrity check for the State Document.",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64,
+      "examples": ["a3f5e2b1c7d4e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4"]
+    },
+
+    "state_chain_hashes": {
+      "type": "array",
+      "description": "Ordered list of SHA-256 hashes representing the full version history of the State Document, from genesis (index 0) to current. Allows the receiving agent to verify the integrity of the entire state evolution chain — not just the current snapshot. Must include at least the current version hash (matching state_document_hash) as the last element.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/StateChainEntry"
+      }
+    },
+
+    "ground_truth_network": {
+      "$ref": "#/definitions/GroundTruthNetwork",
+      "description": "The full serialised Ground Truth Network — the typed graph of conversation nodes and edges. This is the primary relational memory store. The receiver uses this to reconstruct the conversation graph, reconnect typed edges, and enable graph traversal for future turn retrieval."
+    },
+
+    "node_attestations": {
+      "$ref": "#/definitions/NodeAttestations",
+      "description": "A flat map of node_id → SHA-256 hash for every node included in the ground_truth_network. Allows the receiving agent to verify each individual node's integrity without parsing the entire network. Node IDs must match the node_id values present in ground_truth_network.nodes."
+    },
+
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp (UTC, with timezone offset) at which the sender produced this envelope. Receivers SHOULD treat envelopes older than their configured TTL as stale and reject them.",
+      "examples": ["2026-04-05T14:32:10.456Z"]
+    },
+
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Optional. ISO 8601 timestamp after which this envelope MUST NOT be accepted by any receiver. If absent, the receiver applies its own TTL policy. Senders SHOULD set this for security-sensitive deployments.",
+      "examples": ["2026-04-05T15:32:10.456Z"]
+    },
+
+    "envelope_hash": {
+      "type": "string",
+      "description": "SHA-256 hex digest of the canonical envelope — computed over the JSON-serialised envelope body with envelope_hash set to the empty string and keys sorted lexicographically. This is the root integrity check. Receivers MUST recompute and verify before any other processing. Failure MUST cause immediate rejection.",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64,
+      "examples": ["f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3"]
+    },
+
+    "signature": {
+      "$ref": "#/definitions/EnvelopeSignature",
+      "description": "Optional. Cryptographic signature over the envelope_hash. Presence indicates the sender has a signing key pair. Receivers that require signed envelopes MUST reject unsigned ones. Receivers that do not enforce signing SHOULD log a warning when signature is absent."
+    },
+
+    "compression": {
+      "type": "string",
+      "description": "Optional. Compression algorithm applied to state_document_json before serialisation. Receivers must decompress before hash verification. 'none' is the default when field is absent.",
+      "enum": ["none", "gzip", "zstd", "lz4"],
+      "default": "none"
+    },
+
+    "encoding": {
+      "type": "string",
+      "description": "Optional. Character encoding of all string fields. Must be UTF-8 for hash verification to be deterministic. Provided for explicit auditability.",
+      "enum": ["utf-8"],
+      "default": "utf-8"
+    },
+
+    "metadata": {
+      "$ref": "#/definitions/EnvelopeMetadata",
+      "description": "Optional. Extensibility bag for deployment-specific fields. Validators MUST NOT fail on unknown keys inside metadata. The envelope_hash computation MUST include metadata if present."
+    }
+  },
+
+  "definitions": {
+
+    "Sha256Hex": {
+      "type": "string",
+      "description": "A 64-character lowercase hexadecimal SHA-256 digest.",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+
+    "StateChainEntry": {
+      "type": "object",
+      "description": "A single entry in the State Document version chain. Represents one snapshot of the State Document at a given version.",
+      "required": ["version_index", "hash", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "version_index": {
+          "type": "integer",
+          "description": "Zero-based sequential version number. genesis = 0. Must be strictly monotonically increasing across the array. The entry at the highest version_index MUST have a hash matching state_document_hash.",
+          "minimum": 0
+        },
+        "hash": {
+          "$ref": "#/definitions/Sha256Hex",
+          "description": "SHA-256 hash of the State Document at this version. The final entry's hash must equal state_document_hash."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp when this version of the State Document was committed."
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Optional. Human-readable description of what changed in this version. Intended for audit log display only — not used in hash computation."
+        }
+      }
+    },
+
+    "GroundTruthNetwork": {
+      "type": "object",
+      "description": "The full ICA conversation graph. Nodes are message turns; edges are typed relationships between them.",
+      "required": ["network_id", "nodes", "edges", "network_hash", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "network_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable identifier for this Ground Truth Network instance. Tied to conversation_id — one GTN per conversation.",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "network_hash": {
+          "$ref": "#/definitions/Sha256Hex",
+          "description": "SHA-256 hash of the canonical serialised network (nodes + edges, sorted by ID, keys sorted lexicographically). The receiving agent MUST recompute and verify."
+        },
+        "tier": {
+          "type": "string",
+          "description": "Optional. ICA memory tier of the nodes included. 'active' = last ~500 turns (full fidelity). 'warm' = 500–5000 turns (compressed). 'cold' = older archive. Absence implies all tiers may be mixed.",
+          "enum": ["active", "warm", "cold", "mixed"]
+        },
+        "nodes": {
+          "type": "array",
+          "description": "All graph nodes included in this transfer. Each node is a single message turn or synthesised memory unit.",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/definitions/GraphNode"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "description": "All typed edges connecting nodes. Receivers must reconstruct the graph by indexing nodes by node_id and then applying edges.",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/definitions/GraphEdge"
+          }
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this network snapshot was taken."
+        },
+        "total_node_count": {
+          "type": "integer",
+          "description": "Optional. Total number of nodes in the full GTN, including nodes not transferred (e.g., in cold tier). Allows the receiver to understand the scope of what was omitted.",
+          "minimum": 0
+        }
+      }
+    },
+
+    "GraphNode": {
+      "type": "object",
+      "description": "A single node in the ICA conversation graph. Represents one message turn or synthesised memory unit.",
+      "required": ["node_id", "node_hash", "speaker", "content", "tier", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Globally unique identifier for this node. Must match the corresponding key in node_attestations.",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "node_hash": {
+          "$ref": "#/definitions/Sha256Hex",
+          "description": "SHA-256 hash of the node's canonical content (content field, UTF-8 bytes). Must match the corresponding entry in node_attestations."
+        },
+        "speaker": {
+          "type": "string",
+          "description": "Who produced this message turn. 'user' or 'agent' for standard turns; 'system' for synthesised memory units.",
+          "enum": ["user", "agent", "system"]
+        },
+        "tier": {
+          "type": "string",
+          "description": "ICA memory tier this node belongs to at time of transfer.",
+          "enum": ["active", "warm", "cold"]
+        },
+        "content": {
+          "type": "string",
+          "description": "Full message content for active-tier nodes. For warm/cold nodes, this may be the compressed summary rather than original text.",
+          "minLength": 0
+        },
+        "content_compressed": {
+          "type": "boolean",
+          "description": "Optional. If true, content holds the compressed/summarised version of the original message. If false or absent, content is the original verbatim text.",
+          "default": false
+        },
+        "turn_index": {
+          "type": "integer",
+          "description": "Optional. Sequential position of this turn in the conversation (0-based). Enables turn-order reconstruction without relying on created_at timestamps.",
+          "minimum": 0
+        },
+        "topic_tags": {
+          "type": "array",
+          "description": "Optional. Auto-extracted topic tags for this node. Used by the retrieval ranking layer.",
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "maxItems": 32
+        },
+        "entity_tags": {
+          "type": "array",
+          "description": "Optional. Named entities extracted from this node (people, projects, decisions, questions).",
+          "items": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "maxItems": 64
+        },
+        "emotional_register": {
+          "type": "string",
+          "description": "Optional. Lightweight emotional classification of the node content.",
+          "enum": ["neutral", "positive", "negative", "questioning", "assertive", "uncertain"],
+          "maxLength": 32
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp when this message turn was recorded."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional. Implementation-specific node metadata.",
+          "additionalProperties": true
+        }
+      }
+    },
+
+    "GraphEdge": {
+      "type": "object",
+      "description": "A typed directed edge between two graph nodes. Encodes the relational structure of the conversation.",
+      "required": ["edge_id", "source_node_id", "target_node_id", "edge_type", "weight"],
+      "additionalProperties": false,
+      "properties": {
+        "edge_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for this edge.",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "source_node_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "node_id of the source node. Must exist in the ground_truth_network.nodes array.",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "target_node_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "node_id of the target node. Must exist in the ground_truth_network.nodes array.",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "edge_type": {
+          "type": "string",
+          "description": "Typed relationship between source and target, drawn from the ICA edge taxonomy. CONTINUES = sequential flow. REFERENCES = explicit callback. CONTRADICTS = conflict. RESOLVES = answer to open question. SHARES_ENTITY = same named entity. SHARES_TOPIC = same topic. SYNTHESISED = edge created by the memory manager, not directly expressed.",
+          "enum": [
+            "CONTINUES",
+            "REFERENCES",
+            "CONTRADICTS",
+            "RESOLVES",
+            "SHARES_ENTITY",
+            "SHARES_TOPIC",
+            "SYNTHESISED"
+          ]
+        },
+        "weight": {
+          "type": "number",
+          "description": "Edge connection strength, used by the retrieval ranking layer. Range [0.0, 1.0]. Higher values mean stronger relationship.",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional. ISO 8601 UTC timestamp when this edge was created."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional. Implementation-specific edge metadata.",
+          "additionalProperties": true
+        }
+      }
+    },
+
+    "NodeAttestations": {
+      "type": "object",
+      "description": "Flat map of node_id (UUID string) → SHA-256 hex digest. Every node_id present in ground_truth_network.nodes MUST have a corresponding entry. The receiving agent MUST verify each node's content hash matches its attestation before using the node.",
+      "minProperties": 0,
+      "additionalProperties": {
+        "$ref": "#/definitions/Sha256Hex"
+      },
+      "propertyNames": {
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        "description": "Each key must be a valid UUID (node_id)."
+      }
+    },
+
+    "EnvelopeSignature": {
+      "type": "object",
+      "description": "Cryptographic signature over the envelope_hash. Enables receiving agents to verify the sender's identity using a pre-shared or directory-resolved public key.",
+      "required": ["algorithm", "public_key_id", "signature_value"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "description": "Signature algorithm identifier.",
+          "enum": ["Ed25519", "ES256", "RS256", "HS256"],
+          "examples": ["Ed25519"]
+        },
+        "public_key_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Reference to the public key used to produce this signature. Format is deployment-defined — may be a key fingerprint, a URL, or a JWK kid. The receiver uses this to resolve the correct verification key.",
+          "examples": ["ica-key-v1:7e4a1c2d"]
+        },
+        "signature_value": {
+          "type": "string",
+          "description": "Base64url-encoded signature bytes produced by signing the envelope_hash with the sender's private key.",
+          "examples": ["MEUCIQDx4Y..."]
+        },
+        "signed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional. ISO 8601 UTC timestamp when the signature was produced. If present, receivers SHOULD treat signatures older than their configured max_signature_age as invalid."
+        }
+      }
+    },
+
+    "EnvelopeMetadata": {
+      "type": "object",
+      "description": "Open-ended extension bag. Validators do not fail on unknown keys. Used for deployment-specific annotations, routing hints, A/B identifiers, etc.",
+      "additionalProperties": true,
+      "properties": {
+        "source_system": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Optional. Human-readable name of the originating system (e.g., 'production-ica-v1')."
+        },
+        "deployment_env": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Optional. Deployment environment identifier.",
+          "enum": ["production", "staging", "development", "test"]
+        },
+        "ica_version": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Optional. Version of the ICA implementation that produced this envelope. Semantic versioning recommended.",
+          "examples": ["2.1.0"]
+        },
+        "chainthread_chain_id": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Optional. If this envelope was transmitted via ChainThread, the chain_id of the containing HandoffEnvelope. Enables cross-system audit trail linkage."
+        }
+      }
+    }
+  }
+}
