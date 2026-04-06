@@ -1,10 +1,12 @@
 # Infinite Conversation Architecture
 ### A Framework for Boundless AI Conversation Systems
 
-**Proposed by:** Eugene Mawuli Attigah  
-**Date:** March 20, 2026  
+**Proposed and authored by:** Eugene Mawuli Attigah  
+**Date:** March 2026  
 **Contact:** bitelance.team@gmail.com  
-**Status:** Open Proposal — Seeking Research & Engineering Collaboration  
+**GitHub:** github.com/eugene001dayne  
+**License:** CC BY 4.0  
+**Status:** Open — Seeking Research & Engineering Collaboration  
 *Aided by ConsciousNet methodology*
 
 ---
@@ -13,9 +15,7 @@
 
 Every AI conversation system today — regardless of provider or model — operates as a finite container. Messages accumulate sequentially until the system reaches a hard ceiling, at which point the conversation ends or degrades. This is not a policy limitation. It is an architectural one.
 
-The root cause is how transformer-based models process context. Every token in a conversation must be held in GPU memory simultaneously and processed together through an attention mechanism. The cost scales quadratically — double the context, roughly four times the compute. There is a physical ceiling that no amount of policy change can move.
-
-But the problem runs deeper than the hard limit. Three distinct failures occur:
+Three distinct failures occur:
 
 1. **Context degradation** — the model loses coherence on things said early in a conversation well before hitting the hard ceiling
 2. **The connectivity problem** — human conversation is non-linear. Everything connects to everything else. Standard retrieval systems that surface "relevant" past messages by similarity miss relational context, callbacks, and narrative threads
@@ -33,129 +33,56 @@ The model's context window stays fixed in size. What changes is how intelligentl
 
 ---
 
-## The Architecture — Five Components
+## Architecture — Five Components
 
 ### Component 1 — The Sliding Hot Window
-
-The last 20–25 message turns are passed directly into the model's context on every turn. Fixed size. Never grows. Always slides forward with the conversation.
-
-**Solves:** Real-time conversational coherence.
-
----
+The last 20–25 message turns, always included in the model's context window verbatim. Fixed size. Never grows. Always slides forward with the conversation.
 
 ### Component 2 — The Conversation Graph
-
 Every message turn is stored as a node in an external graph database. Typed edges connect nodes based on their relationships:
 
-| Edge Type | Meaning |
-|-----------|---------|
-| `CONTINUES` | Direct sequential flow |
-| `REFERENCES` | One message explicitly refers back to another |
-| `CONTRADICTS` | A later message conflicts with an earlier one |
-| `RESOLVES` | A later message answers an earlier open question |
-| `SHARES_ENTITY` | Two non-adjacent messages mention the same person, project, or thing |
-| `SHARES_TOPIC` | Two non-adjacent messages share a topic regardless of wording |
+| Edge Type | Weight | Meaning |
+|-----------|--------|---------|
+| `RESOLVES` | 1.0 | Answers an open question from the source node |
+| `REFERENCES` | 0.9 | Explicitly refers back to the source node |
+| `CONTRADICTS` | 0.8 | Conflicts with a claim in the source node |
+| `SHARES_ENTITY` | 0.6 | Both messages mention the same named entity |
+| `SHARES_TOPIC` | 0.4 | Same topic, differently worded |
+| `CONTINUES` | 0.2 | Sequential flow |
 
-**Each node contains:**
-- Full message text
-- Compressed version (for fast scanning)
-- Timestamp + speaker
-- Topic tags (auto-extracted)
-- Entity tags (people, projects, decisions, questions)
-- Emotional register (lightweight classifier)
+**Why a graph and not a vector store:** Vector search finds what sounds similar. Graph traversal follows what is actually connected. Human conversation needs the latter.
 
-**Retrieval on each turn:**
-1. New message is analysed for entities, topics, and intent
-2. Graph is traversed from current node outward following typed edges
-3. Traversal depth-limited — follows strongest connections first
-4. Ranking layer scores retrieved nodes by: connection strength, recency, entity overlap, unresolved open questions
-5. Top 8–12 nodes injected into context alongside the hot window
-
-**Why a graph and not a vector store:**
-Vector search finds what sounds similar. Graph traversal follows what is actually connected. Human conversation needs the latter — relevance in conversation is relational, not just textual.
-
-**Tiered graph (solving the scale problem):**
-
-| Tier | Scope | Detail | Retrieval Speed |
-|------|-------|--------|----------------|
-| Active | Last ~500 turns | Full | Fast |
-| Warm | Turns 500–5000 | Compressed | Medium |
-| Cold | Everything older | Archived | On-demand |
-
-Nodes move between tiers based on connection activity and age. A node that keeps getting referenced stays active regardless of age. The active graph stays lean. History compresses but never disappears.
-
-**Solves:** The connectivity problem — the model gets what is actually connected to this moment, even if it was said 400 messages ago.
-
----
+The graph is tiered — active (~500 turns, full detail), warm (500–5,000 turns, compressed), cold (archived, on-demand) — with connection-activity-based node promotion. Highly connected nodes stay active regardless of age.
 
 ### Component 3 — The State Document
-
-A living structured document always injected at the top of every context window. Maintains persistent knowledge of the user across the entire conversation and across sessions.
-
-**Structure:**
-
-**Section A — User Identity**
-- Name, role, context
-- Stated goals and ongoing projects
-- Known preferences (communication style, technical level, topics they care about)
-- Explicit dislikes and boundaries
-
-**Section B — Conversation State**
-- Active open threads
-- Decisions made
-- Open questions not yet answered
-- Things agreed upon
-
-**Section C — Key Facts**
-- Factual claims the user has established
-- Corrections the user has made
-
-**Section D — Relationship History**
-- Conversation duration and dynamic
-- Tone established
-- Notable moments
-
-**Self-correction loop:**
-Every 20 turns, a background process reviews the state document against recent conversation. Not a dumb extraction script — the model itself participates in the review, producing a diff of what should change, what is outdated, what is new. The document is versioned with rollback capability.
-
-**Solves:** The identity problem — the model always knows who it is talking to, even at the start of a new session.
-
----
+A living structured document always injected at the top of every context window. Maintains persistent knowledge of the user: identity, goals, decisions made, open questions, established facts. Self-correcting every 20 turns via a model-driven review loop. Versioned with rollback.
 
 ### Component 4 — The Memory Manager
+A dedicated lightweight process running in parallel with the main model. Its only responsibility is memory operations — writing nodes, detecting edges, managing tier promotion, triggering state document reviews. Never competes with the main model for reasoning resources.
 
-A dedicated lightweight process running in parallel with the main model. Its only responsibility is memory operations.
+### Component 5 — The Pre-Fetch Engine
+Graph retrieval begins the moment the user starts typing — not when they send. By the time the message is submitted, retrieval is already complete. Zero latency added from the user's perspective.
 
-**On every turn:**
-- Writes new message to graph as a node
-- Runs edge detection — identifies which existing nodes connect to the new message and creates typed edges
-- Checks active tier for nodes eligible for promotion to warm tier
-- Pre-computes retrieval query for next turn
-
-**Every 20 turns:**
-- Triggers state document review
-- Runs compression pass on nodes moving to warm tier
-- Updates topic and entity indexes
-
-**Why it is separate from the main model:**
-If the main model manages its own memory, memory tasks compete with reasoning tasks for context space. A dedicated process is consistent, always running, and never deprioritised. The main model trusts what it is handed and focuses entirely on thinking.
-
-**Solves:** Consistency and the main model's cognitive load.
+**This is the most novel component.** No peer-reviewed paper covers typing-time retrieval. The closest existing work is Aeon's Semantic Lookaside Buffer, which operates at the turn level rather than the character level.
 
 ---
 
-### Component 5 — The Pre-Fetch Engine
+## The Scoring Formula
 
-Graph retrieval begins the moment the user starts typing — not when they send the message.
+Candidate nodes are ranked before injection into the context window:
 
-**How it works:**
-- Reads partial message in real time as user types
-- Begins provisional graph traversal immediately
-- Refines traversal as more words appear
-- By the time the user hits send, retrieval is complete or nearly complete
-- On send, a fast verification pass confirms accuracy and fills any gap
+```
+S(N, M) = 0.25 · R(N) + 0.40 · C(N,M) + 0.20 · E(N,M) + 0.15 · Q(N)
+```
 
-**Solves:** Latency — the user feels no delay from database lookups.
+| Symbol | Component | Weight |
+|--------|-----------|--------|
+| R(N) | Recency: `exp(-0.005 × Δt)` | 0.25 |
+| C(N,M) | Connection: typed edge weight sum to hot window | 0.40 |
+| E(N,M) | Entity overlap: `|entities(N) ∩ M| / |entities(M)|` | 0.20 |
+| Q(N) | Open question: 1.0 if unresolved, 0.0 otherwise | 0.15 |
+
+Nodes scoring below 0.15 are excluded from injection.
 
 ---
 
@@ -163,97 +90,189 @@ Graph retrieval begins the moment the user starts typing — not when they send 
 
 ```
 User starts typing
-    → Pre-fetch engine begins graph traversal
+    → Pre-fetch engine: partial text → provisional entities → provisional traversal (background)
 
 User hits send
-    → Memory manager writes message to graph, creates edges
-    → Pre-fetch result verified and finalised
-    → Context window assembled:
-         [State Document]          ← always top
-         [Retrieved Graph Nodes]   ← 8–12 connected history nodes
-         [Hot Window]              ← last 20–25 turns
-         [New Message]             ← bottom
-    → Assembled context passed to main model
-    → Model responds
-    → Memory manager writes response to graph
-    → If turn 20: state document review triggered in background
+    → Memory manager: extract_metadata → create node → detect edges → write to graph
+    → Context assembler: verify pre-fetch → build window:
+         [State Document] + [Retrieved nodes] + [Hot window] + [New message]
+    → Main model receives assembled context → responds
+    → Memory manager: write response to graph → if turn 20: state doc review
 
-Total latency added for user: near zero
+Latency added for user: near zero
 ```
 
 ---
 
-## Known Engineering Challenges — And Their Solutions
+## v2.0 Extensions
 
-| Challenge | Solution |
-|-----------|----------|
-| Graph gets heavy at scale | Three-tier architecture with connection-activity-based node promotion/demotion. Active graph stays bounded. |
-| Retrieval surfaces wrong things | Typed edges + multi-factor ranking layer before injection. Retrieval by relationship, not just similarity. |
-| State document drifts | Versioned document with rollback. Model-driven review every 20 turns. Diff-based updates only. |
-| Latency from DB lookups | Pre-fetch engine starts during typing. Retrieval done by send time. |
-| Everything is connected — what do you leave out | Scored by: graph distance from current moment + entity overlap + whether something is unresolved. |
-| Cross-session identity | State document persists tied to user identity. Loaded at session start. Cold-start from saved state. |
+### Ground Truth Network
+A verified anchor layer above the conversation graph. Ground truth nodes:
+- Never move to warm or cold tier
+- Always retrieved when their entities appear in the current message (score: 0.85)
+- Protected from self-correction loop overwrite — only flagged as conflict, never deleted
+- Carry full provenance: who verified, when, how, confidence level
+
+Four verification sources: `USER_ASSERTED`, `SYSTEM_CHECKED`, `CROSS_SESSION`, `AGENT_CONSENSUS`
+
+### Memory Attestation
+Every node gets a SHA-256 hash at write time. The State Document gets a chained signature — each version hashes the previous, creating a tamper-evident chain. Any modification to any historical version is immediately detectable.
+
+### Distributed Memory Verification Protocol (DMVP)
+A peer-to-peer trust layer for verifying `MemoryTransferEnvelopes` between agent instances — without any central authority, entirely offline.
+
+Four sub-protocols:
+
+| Sub-Protocol | Answers | Mechanism |
+|---|---|---|
+| Identity | Did this come from Agent A? | Ed25519 keypairs, self-certifying Agent IDs (SHA-256 of public key) |
+| Selective Disclosure | Can B verify partial memory? | Merkle tree over existing node SHA-256 hashes |
+| Memory Freshness | Is this a replay? | Timestamp TTL + nonce registry + monotonic sequence numbers |
+| Conflict Resolution | Which State Document wins? | Version vectors (Lamport clocks), deterministic field-level merge |
+
+### Memory Transfer Envelope
+A sealed, cryptographically verifiable package of ICA memory for transfer between agent instances. Carries State Document chain, Ground Truth Network, node attestations, and DMVP header. A receiving agent calls `verify()` and gets a typed pass/fail result.
+
+**ChainThread integration:** The Memory Transfer Envelope drops cleanly into a ChainThread `HandoffEnvelope` payload field. The `chainthread_chain_id` metadata field links both audit trails. When agents hand off work via ChainThread, they can now transfer verified memory context in the same envelope.
 
 ---
 
 ## What This Is Not
 
-This is not a new model. Nothing is trained from scratch.
-
-This is infrastructure that wraps around existing models. Any model — Claude, GPT, Gemini, anything — can have this architecture applied to it today. It is a pure engineering problem, buildable with existing tools:
-
-- Graph databases (Neo4j, Memgraph)
-- Vector/embedding models for edge detection
-- Lightweight parallel processes
-- Streaming pre-fetch patterns (standard in search and recommendation)
-- RAG pipelines (existing, adapted)
+This is not a new model. Nothing is trained from scratch. This is infrastructure that wraps around existing models — Claude, GPT, Gemini, Llama, anything. It is a pure engineering problem, buildable today with existing tools.
 
 ---
 
-## Proposed Build Sequence
+## Repository Structure
 
-For anyone picking this up:
+```
+infinite-conversation-architecture/
+│
+├── README.md                    ← This document
+├── LICENSE                      ← CC BY 4.0
+├── requirements_ner.txt         ← spaCy, YAKE, vaderSentiment, cryptography
+│
+├── core/
+│   ├── schemas.py               ← All data structures
+│   ├── scoring.py               ← Scoring formula + graph traversal
+│   ├── memory_manager.py        ← Memory operations + edge detection
+│   ├── context_assembler.py     ← Context window assembly + Pre-Fetch Engine
+│   ├── ner_engine.py            ← Production NER: spaCy + YAKE + VADER
+│   ├── ica_extensions_v2.py     ← Ground Truth Network + Memory Attestation + Transfer Envelope
+│   └── dmvp.py                  ← Distributed Memory Verification Protocol
+│
+├── schemas/
+│   ├── memory_transfer_envelope.json         ← Full envelope JSON Schema (draft-07)
+│   └── memory_transfer_envelope_partial.json ← Partial transfer JSON Schema
+│
+├── examples/
+│   └── example_turn.py          ← Full working turn demo
+│
+├── tests/
+│   └── test_ner_engine.py       ← Full test suite with latency assertions
+│
+├── research/
+│   ├── FINDINGS.md              ← Literature review — 15+ papers
+│   └── benchmarks/
+│       └── prefetch/
+│           ├── generate_conversations.py  ← Synthetic conversation generator
+│           ├── run_benchmark.py           ← Three-condition benchmark runner
+│           ├── RESULTS.md                 ← Initial benchmark results
+│           ├── results.csv                ← Raw results
+│           └── results_summary.json       ← Aggregated summary
+│
+└── docs/
+    ├── ARCHITECTURE.md          ← Full technical deep dive
+    ├── COMPARISON.md            ← ICA vs Graphiti, Mem0g, Aeon, MemGPT
+    ├── RESEARCH_GAPS.md         ← Three novel contributions as gap analysis
+    ├── FORMULAS.md              ← Scoring formulas with tables
+    └── context_assembler_patch.py ← NER engine integration guide
+```
 
-1. **Graph store** — Build the message graph with typed edges. Benchmark at 1K, 10K, 100K nodes.
-2. **Ranking layer** — Build scoring between retrieval and injection. Test on real long conversations.
-3. **State document** — Build the structured format and 20-turn review loop. Test drift.
-4. **Memory manager** — Extract all memory operations into a standalone process. Measure latency impact.
-5. **Pre-fetch engine** — Build partial-message retrieval trigger. Measure latency reduction.
-6. **Tiered graph** — Add warm and cold tiers. Build promotion/demotion logic. Benchmark at extreme scale.
-7. **Cross-session identity** — Persist state document. Add user identity layer.
-8. **Full integration** — Run conversations to 500, 1000, 5000 turns. Measure coherence against baseline.
+---
+
+## Setup
+
+```bash
+git clone https://github.com/eugene001dayne/infinite-conversation-architecture
+cd infinite-conversation-architecture
+
+pip install -r requirements_ner.txt
+python -m spacy download en_core_web_sm
+
+python examples/example_turn.py
+```
+
+Run the test suite:
+```bash
+pytest tests/test_ner_engine.py -v
+```
+
+Run the pre-fetch benchmark:
+```bash
+cd research/benchmarks/prefetch
+python generate_conversations.py --count 100 --turns 50 --plant-at 10 --output conversations.json
+python run_benchmark.py --input conversations.json --output results.csv
+```
+
+---
+
+## Initial Benchmark Results (v1)
+
+100 synthetic conversations, 50 turns each, fact planted at turn 10, retrieval question at turn 50.
+
+| Condition | Avg Latency | Recall@10 | Avg Drift |
+|-----------|-------------|-----------|-----------|
+| Baseline (post-submit RAG) | 0.21ms | 0.020 | — |
+| Turn-level prediction (Aeon-style) | 0.21ms | 0.020 | — |
+| **ICA typing-time (pre-fetch)** | **0.03ms** | 0.020 | 0.150 |
+
+**ICA typing-time retrieval is 7x faster than baseline.** Recall numbers are low in this run because the simple entity extractor (not the production NER engine) was used. Version 2 benchmark wires in the production NER engine. See `research/benchmarks/prefetch/RESULTS.md` for full analysis.
+
+---
+
+## What Exists vs ICA
+
+| Capability | Graphiti/Zep | Mem0g | Aeon | ICA |
+|---|---|---|---|---|
+| Typed conversation graph | ✅ | Partial | ✅ | ✅ |
+| Pre-fetch during typing | ❌ | ❌ | Partial | ✅ |
+| Tiered graph (active/warm/cold) | ❌ | ❌ | ❌ | ✅ |
+| Self-correcting state document | ❌ | ❌ | ❌ | ✅ |
+| Ground Truth Network | ❌ | ❌ | ❌ | ✅ |
+| Distributed memory verification | ❌ | ❌ | ❌ | ✅ |
+| Cryptographic memory attestation | ❌ | ❌ | ❌ | ✅ |
+| Fully open source | ✅ | ✅ | ❌ | ✅ |
+
+---
+
+## Open Research Issues
+
+| Issue | Description | Labels |
+|-------|-------------|--------|
+| #1 | Pre-fetch benchmark: typing-time vs post-submit | `research`, `benchmark` |
+| #2 | Graph database benchmark: FalkorDB vs Kuzu vs Neo4j | `research`, `benchmark` |
+| #3 | CONTRADICTS and REFERENCES edge detection | `engineering`, `help wanted` |
+| #4 | State document accuracy study | `research`, `benchmark` |
+| #5 | Hybrid retrieval: graph + vector with RRF | `engineering`, `core` |
 
 ---
 
 ## What I Am Asking For
 
-This is an open proposal. I am not selling this. I am publishing it so it can exist and be built.
+Two things only: **credit and recognition as the originator of this architecture**, and **to see it exist in the world**.
 
-**I am asking for:**
-- Credit and recognition as the originator of this architecture
-- Collaboration from researchers and engineers who want to build it
-- Dialogue from any organisation — particularly Anthropic — that wants to develop this seriously
+This is not a product pitch. It is an open research contribution. Anyone can build on it — the license (CC BY 4.0) requires only attribution.
 
-**I am not asking for:**
-- Payment upfront
-- Exclusive rights
-- Control over implementation
-
-If you are building something in this space, reach out. If you are a researcher who sees gaps or improvements, open an issue. If you are an organisation that wants to implement this, let's talk.
+If you work in AI memory systems, long-context research, agent reliability, or distributed systems — contributions, feedback, and collaboration are welcome.
 
 ---
 
-## About the Author
+## Contact
 
-Eugene Mawuli Attigah is an independent product thinker, researcher, and builder. He is currently developing the **Thread Suite** — a portfolio of open source developer tools focused on AI agent reliability, including Iron-Thread (AI output validation) and TestThread (agent behavior testing).
+**Eugene Mawuli Attigah**  
+bitelance.team@gmail.com  
+github.com/eugene001dayne  
+*Aided by ConsciousNet methodology*
 
-This proposal was developed through an extended research and reasoning session, aided by ConsciousNet methodology.
-
-**Contact:** bitelance.team@gmail.com  
-**GitHub:** github.com/eugene001dayne
-
----
-
-*Published: March 20, 2026*  
-*License: Creative Commons Attribution 4.0 International (CC BY 4.0)*  
-*You are free to share and build upon this work with attribution.*
+> *A conversation is not a document with an end. It is a living relationship. The architecture should reflect that.*
