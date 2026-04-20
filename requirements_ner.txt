@@ -22,3 +22,16 @@ yake>=0.4.8
 # Polarity tiebreaker for emotional register classification.
 # If not installed, register classification still works (pattern-matching only).
 vaderSentiment>=3.3.2
+
+# ── Hybrid Retrieval & Edge Detection (optional) ─────────────────────────────
+# Required for core/hybrid_retrieval.py (Issue #5) and core/edge_detector.py (Issue #3)
+# If not installed, these modules are not loaded — core ICA still works fully.
+
+# Dense vector search for hybrid retrieval
+# Model used: sentence-transformers/all-MiniLM-L6-v2 (~22MB, CPU, <10ms)
+sentence-transformers>=2.7.0
+
+# NLI model for CONTRADICTS edge detection
+# Model used: cross-encoder/nli-deberta-v3-small (~85MB, CPU, ~10ms per pair)
+transformers>=4.40.0
+torch>=2.0.0
