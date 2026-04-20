@@ -152,13 +152,16 @@ infinite-conversation-architecture/
 ├── requirements_ner.txt
 │
 ├── core/
-│   ├── schemas.py
-│   ├── scoring.py
-│   ├── memory_manager.py
-│   ├── context_assembler.py
-│   ├── ner_engine.py
-│   ├── ica_extensions_v2.py
-│   └── dmvp.py
+│   ├── schemas.py               ← All data structures
+│   ├── scoring.py               ← Scoring formula + graph traversal
+│   ├── scoring_v2.py            ← PPR-based scoring (replaces C(N,M) with Personalized PageRank)
+│   ├── memory_manager.py        ← Memory operations + edge detection
+│   ├── edge_detector.py         ← CONTRADICTS + REFERENCES + RESOLVES detection (NLI-based)
+│   ├── context_assembler.py     ← Context window assembly + Pre-Fetch Engine
+│   ├── hybrid_retrieval.py      ← Three-leg RRF retrieval (graph + vector + entity)
+│   ├── ner_engine.py            ← Production NER: spaCy + YAKE + VADER
+│   ├── ica_extensions_v2.py     ← Ground Truth Network + Memory Attestation + Transfer Envelope
+│   └── dmvp.py                  ← Distributed Memory Verification Protocol (optional)
 │
 ├── schemas/
 │   ├── memory_transfer_envelope.json
@@ -225,8 +228,7 @@ python run_benchmark.py --input conversations.json --output results.csv
 | Turn‑level prediction (Aeon‑style) | 0.21ms | 0.020 | — |
 | **ICA typing‑time (pre‑fetch)** | **0.03ms** | 0.020 | 0.150 |
 
-**ICA typing‑time retrieval is 7x faster than baseline.** Recall is low here because we used a simple entity extractor, not the production NER engine. Version 2 will wire in the real NER engine. See `research/benchmarks/prefetch/RESULTS.md`.
-
+ICA typing-time retrieval is 7x faster than baseline. Recall numbers are low in this run because the simple entity extractor was used — not the production NER engine. Version 2 benchmark with hybrid retrieval (graph + vector + entity, RRF fusion) and production NER engine is the active workstream. Expected lift: Recall@10 from 0.02 to 0.35–0.50. See `research/benchmarks/prefetch/RESULTS.md` for full analysis.
 ---
 
 ## How this compares to existing work
